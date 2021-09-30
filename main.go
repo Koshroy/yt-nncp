@@ -138,9 +138,9 @@ func parseLine(line string) (YTRequest, error) {
 	splits := strings.SplitN(line, " ", 4)
 	for i, s := range splits {
 		if i == 0 {
-			req.URL = strings.TrimSpace(s)
-		} else if i == 1 {
 			req.Dest = strings.TrimSpace(s)
+		} else if i == 1 {
+			req.URL = strings.TrimSpace(s)
 		} else if i == 2 {
 			qual, err := AsYTQuality(s)
 			if err != nil {
@@ -325,6 +325,9 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 	return err
 }
 
+// Periodically flush the contents of buf. This is to ensure
+// that a large Youtube video doesn't generate a lot of progress
+// messages and cause stdout to allocate a lot of memory
 func bufLog(end <-chan bool, buf *safebuffer.Buffer) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
