@@ -318,9 +318,9 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 	if debug {
 		close(end)
 		if out.Len() > 0 {
-			log.Println("ytdl video stdout:", out.String())	
+			log.Println("ytdl video stdout:", out.String())
 		}
-		
+
 	}
 	return err
 }
@@ -334,13 +334,13 @@ func bufLog(end <-chan bool, buf *safebuffer.Buffer) {
 
 	for {
 		select {
-		case _ = <- ticker.C:
+		case _ = <-ticker.C:
 			if buf.Len() > 0 {
 				// Don't add log lines here as we're
 				// periodically writing
 				fmt.Print(buf.String())
 			}
-		case _ = <- end:
+		case _ = <-end:
 			return
 		}
 	}
