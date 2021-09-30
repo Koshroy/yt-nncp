@@ -96,13 +96,13 @@ func main() {
 
 	w, err := os.Create(*pipe)
 	if err != nil {
-		log.Fatalf("Error opening pipe %s for writing: %v\n", pipe, err)
+		log.Fatalf("Error opening pipe %s for writing: %v\n", *pipe, err)
 	}
 	defer w.Close()
 
 	file, err := os.Open(*pipe)
 	if err != nil {
-		log.Fatalf("Error opening pipe %s for reading: %v\n", pipe, err)
+		log.Fatalf("Error opening pipe %s for reading: %v\n", *pipe, err)
 	}
 	defer file.Close()
 
@@ -166,10 +166,16 @@ func parseLine(line string) (YTRequest, error) {
 
 func ytLoop(nncpPath, nncpCfgPath string, queue <-chan YTRequest, rm, debug bool) {
 	for req := range queue {
+		log.Println("Fetching video:", req.URL)
+
 		fname, err := ytdlFilename(req.URL, req.Quality, debug)
 		if err != nil {
 			log.Printf("Error fetching filename of video: %v\n", err)
 			continue
+		}
+
+		if debug {
+			log.Println("video filename:", fname)
 		}
 
 		err = ytdlVideo(req.URL, req.Quality, debug)
@@ -224,6 +230,8 @@ func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
 			OutputTmpl,
 			"--restrict-filename",
 			"--get-filename",
+			"--merge-output-format",
+			"mkv",
 			URL,
 		)
 	} else {
@@ -232,6 +240,8 @@ func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
 			OutputTmpl,
 			"--restrict-filename",
 			"--get-filename",
+			"--merge-output-format",
+			"mkv",
 			"-f "+qualStr,
 			URL,
 		)
@@ -243,9 +253,8 @@ func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
 	bytes, err := cmd.Output()
 	if debug {
 		if out.Len() > 0 {
-			log.Println("ytdl fname stderr:", out.String())	
+			log.Println("ytdl fname stderr:", out.String())
 		}
-		
 	}
 
 	if err != nil {
@@ -281,6 +290,8 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 			OutputTmpl,
 			"--restrict-filename",
 			"-q",
+			"--merge-output-format",
+			"mkv",
 			"--external-downloader",
 			"aria2c",
 		)
@@ -291,6 +302,8 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 			OutputTmpl,
 			"--restrict-filename",
 			"-q",
+			"--merge-output-format",
+			"mkv",
 			"-f "+qualStr,
 			"--external-downloader",
 			"aria2c",
@@ -302,8 +315,8 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 		cmd.Stdout = out
 	}
 	err := cmd.Run()
-	close(end)
 	if debug {
+		close(end)
 		if out.Len() > 0 {
 			log.Println("ytdl video stdout:", out.String())	
 		}
