@@ -60,6 +60,7 @@ func main() {
 	pipe := flag.String("pipe", "", "path to pipe holding youtube requests")
 	debug := flag.Bool("debug", false, "debug mode")
 	rm := flag.Bool("rm", true, "remove files after download")
+	maxDls := flag.Int("max", 3, "maximum concurrent downloads")
 	flag.Parse()
 
 	if *pipe == "" {
@@ -107,7 +108,7 @@ func main() {
 	defer file.Close()
 
 	queue := make(chan YTRequest)
-	go ytLoop(nncpPath, nncpCfgPath, queue, *rm, *debug)
+	go ytLoop(nncpPath, nncpCfgPath, queue, *maxDls, *rm, *debug)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -164,42 +165,48 @@ func parseLine(line string) (YTRequest, error) {
 	return req, nil
 }
 
-func ytLoop(nncpPath, nncpCfgPath string, queue <-chan YTRequest, rm, debug bool) {
+func ytLoop(nncpPath, nncpCfgPath string, queue <-chan YTRequest, maxDls int, rm, debug bool) {
+	var sem = make(chan bool, maxDls)
+
 	for req := range queue {
-		log.Println("Fetching video:", req.URL)
+		go func() {
+			sem <- true
+			log.Println("Fetching video:", req.URL)
 
-		fname, err := ytdlFilename(req.URL, req.Quality, debug)
-		if err != nil {
-			log.Printf("Error fetching filename of video: %v\n", err)
-			continue
-		}
+			fname, err := ytdlFilename(req.URL, req.Quality, debug)
+			if err != nil {
+				log.Printf("Error fetching filename of video: %v\n", err)
+				return
+			}
 
-		if debug {
-			log.Println("video filename:", fname)
-		}
+			if debug {
+				log.Println("video filename:", fname)
+			}
 
-		err = ytdlVideo(req.URL, req.Quality, debug)
-		if err != nil {
-			log.Printf("Error fetching video with youtube-dl: %v\n", err)
-			continue
-		}
+			err = ytdlVideo(req.URL, req.Quality, debug)
+			if err != nil {
+				log.Printf("Error fetching video with youtube-dl: %v\n", err)
+				return
+			}
 
-		err = sendFileNNCP(nncpPath, nncpCfgPath, fname, req.Dest, debug)
-		if err != nil {
-			log.Printf("Error sending file over NNCP: %v\n", err)
-			continue
-		}
+			err = sendFileNNCP(nncpPath, nncpCfgPath, fname, req.Dest, debug)
+			if err != nil {
+				log.Printf("Error sending file over NNCP: %v\n", err)
+				return
+			}
 
-		if rm {
-			go func() {
-				err := os.Remove(fname)
-				if err != nil {
-					log.Println("Could not remove file", fname)
-				}
-			}()
-		}
+			if rm {
+				go func() {
+					err := os.Remove(fname)
+					if err != nil {
+						log.Println("Could not remove file", fname)
+					}
+				}()
+			}
 
-		log.Println("Processed a video request")
+			log.Println("Processed video request:", req.URL)
+			<-sem
+		}()
 	}
 }
 
@@ -316,6 +323,9 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 	}
 	err := cmd.Run()
 	if debug {
+		// We need to explicitly close the channel to have the log buffer
+		// flush loop finish
+
 		close(end)
 		if out.Len() > 0 {
 			log.Println("ytdl video stdout:", out.String())
