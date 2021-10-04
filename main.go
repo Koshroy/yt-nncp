@@ -169,45 +169,45 @@ func ytLoop(nncpPath, nncpCfgPath string, queue <-chan YTRequest, maxDls int, rm
 	var sem = make(chan bool, maxDls)
 
 	for req := range queue {
-		go func() {
-			sem <- true
-			log.Println("Fetching video:", req.URL)
-
-			fname, err := ytdlFilename(req.URL, req.Quality, debug)
-			if err != nil {
-				log.Printf("Error fetching filename of video: %v\n", err)
-				return
-			}
-
-			if debug {
-				log.Println("video filename:", fname)
-			}
-
-			err = ytdlVideo(req.URL, req.Quality, debug)
-			if err != nil {
-				log.Printf("Error fetching video with youtube-dl: %v\n", err)
-				return
-			}
-
-			err = sendFileNNCP(nncpPath, nncpCfgPath, fname, req.Dest, debug)
-			if err != nil {
-				log.Printf("Error sending file over NNCP: %v\n", err)
-				return
-			}
-
-			if rm {
-				go func() {
-					err := os.Remove(fname)
-					if err != nil {
-						log.Println("Could not remove file", fname)
-					}
-				}()
-			}
-
-			log.Println("Processed video request:", req.URL)
-			<-sem
-		}()
+		go ytHandler(nncpPath, nncpCfgPath, req, rm, debug, sem)
 	}
+}
+
+func ytHandler(nncpPath, nncpCfgPath string, req YTRequest, rm, debug bool, sem chan bool) {
+	sem <- true
+	log.Println("Fetching video:", req.URL)
+
+	fname, err := ytdlFilename(req.URL, req.Quality, debug)
+	if err != nil {
+		log.Printf("Error fetching filename of video %s: %v\n", req.URL, err)
+		return
+	}
+
+	if debug {
+		log.Println("video filename:", fname)
+	}
+
+	err = ytdlVideo(req.URL, req.Quality, debug)
+	if err != nil {
+		log.Printf("Error fetching video %s with youtube-dl: %v\n", req.URL, err)
+		return
+	}
+
+	err = sendFileNNCP(nncpPath, nncpCfgPath, fname, req.Dest, debug)
+	if err != nil {
+		log.Printf("Error sending file %s over NNCP: %v\n", fname, err)
+		return
+	}
+
+	if rm {
+		err := os.Remove(fname)
+		if err != nil {
+			log.Println("Could not remove file", fname)
+		}
+	}
+
+	log.Println("Processed video request:", req.URL)
+	<-sem
 }
 
 func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
