@@ -92,6 +92,10 @@ func main() {
 			}
 		}
 	}
+	ytdlPath := os.Getenv("YTDL_PATH")
+	if ytdlPath == "" {
+		ytdlPath = "youtube-dl"
+	}
 
 	log.Println("Starting")
 
@@ -108,7 +112,7 @@ func main() {
 	defer file.Close()
 
 	queue := make(chan YTRequest)
-	go ytLoop(nncpPath, nncpCfgPath, queue, *maxDls, *rm, *debug)
+	go ytLoop(nncpPath, nncpCfgPath, ytdlPath, queue, *maxDls, *rm, *debug)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -165,19 +169,19 @@ func parseLine(line string) (YTRequest, error) {
 	return req, nil
 }
 
-func ytLoop(nncpPath, nncpCfgPath string, queue <-chan YTRequest, maxDls int, rm, debug bool) {
+func ytLoop(nncpPath, nncpCfgPath, ytdlPath string, queue <-chan YTRequest, maxDls int, rm, debug bool) {
 	var sem = make(chan bool, maxDls)
 
 	for req := range queue {
-		go ytHandler(nncpPath, nncpCfgPath, req, rm, debug, sem)
+		go ytHandler(nncpPath, nncpCfgPath, ytdlPath, req, rm, debug, sem)
 	}
 }
 
-func ytHandler(nncpPath, nncpCfgPath string, req YTRequest, rm, debug bool, sem chan bool) {
+func ytHandler(nncpPath, nncpCfgPath, ytdlPath string, req YTRequest, rm, debug bool, sem chan bool) {
 	sem <- true
 	log.Println("Fetching video:", req.URL)
 
-	fname, err := ytdlFilename(req.URL, req.Quality, debug)
+	fname, err := ytdlFilename(ytdlPath, req.URL, req.Quality, debug)
 	if err != nil {
 		log.Printf("Error fetching filename of video %s: %v\n", req.URL, err)
 		return
@@ -187,7 +191,7 @@ func ytHandler(nncpPath, nncpCfgPath string, req YTRequest, rm, debug bool, sem 
 		log.Println("video filename:", fname)
 	}
 
-	err = ytdlVideo(req.URL, req.Quality, debug)
+	err = ytdlVideo(ytdlPath, req.URL, req.Quality, debug)
 	if err != nil {
 		log.Printf("Error fetching video %s with youtube-dl: %v\n", req.URL, err)
 		return
@@ -210,7 +214,7 @@ func ytHandler(nncpPath, nncpCfgPath string, req YTRequest, rm, debug bool, sem 
 	<-sem
 }
 
-func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
+func ytdlFilename(ytdlPath, URL string, qual YTQuality, debug bool) (string, error) {
 	var out *bytes.Buffer
 	var cmd *exec.Cmd
 
@@ -233,7 +237,7 @@ func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
 
 	if qualStr == "" {
 		cmd = exec.Command(
-			"youtube-dl",
+			ytdlPath,
 			OutputTmpl,
 			"--restrict-filename",
 			"--get-filename",
@@ -243,7 +247,7 @@ func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
 		)
 	} else {
 		cmd = exec.Command(
-			"youtube-dl",
+			ytdlPath,
 			OutputTmpl,
 			"--restrict-filename",
 			"--get-filename",
@@ -271,7 +275,7 @@ func ytdlFilename(URL string, qual YTQuality, debug bool) (string, error) {
 	}
 }
 
-func ytdlVideo(URL string, qual YTQuality, debug bool) error {
+func ytdlVideo(ytdlPath, URL string, qual YTQuality, debug bool) error {
 	var out *safebuffer.Buffer
 	var cmd *exec.Cmd
 	var end chan bool
@@ -292,7 +296,7 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 	qualStr := qual.String()
 	if qualStr == "" {
 		cmd = exec.Command(
-			"youtube-dl",
+			ytdlPath,
 			URL,
 			OutputTmpl,
 			"--restrict-filename",
@@ -304,7 +308,7 @@ func ytdlVideo(URL string, qual YTQuality, debug bool) error {
 		)
 	} else {
 		cmd = exec.Command(
-			"youtube-dl",
+			ytdlPath,
 			URL,
 			OutputTmpl,
 			"--restrict-filename",
