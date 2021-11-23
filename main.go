@@ -387,9 +387,9 @@ func sendFileNNCP(nncpPath, nncpCfgPath, filename, destNode string, debug bool) 
 	}
 
 	if nncpCfgPath == "" {
-		cmd = exec.Command(nncpPath, filename, destPath)
+		cmd = exec.Command(nncpPath, "-quiet", filename, destPath)
 	} else {
-		cmd = exec.Command(nncpPath, "-cfg", nncpCfgPath, filename, destPath)
+		cmd = exec.Command(nncpPath, "-cfg", nncpCfgPath, "-quiet", filename, destPath)
 	}
 
 	if debug {
