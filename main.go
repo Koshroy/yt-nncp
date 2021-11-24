@@ -56,6 +56,14 @@ type YTRequest struct {
 	Quality YTQuality
 }
 
+type RunConfig struct {
+	NncpPath    string
+	NncpCfgPath string
+	YtdlPath    string
+	Rm          bool
+	Debug       bool
+}
+
 func main() {
 	pipe := flag.String("pipe", "", "path to pipe holding youtube requests")
 	debug := flag.Bool("debug", false, "debug mode")
@@ -111,8 +119,16 @@ func main() {
 	}
 	defer file.Close()
 
+	runCfg := RunConfig{
+		NncpPath:    nncpPath,
+		NncpCfgPath: nncpCfgPath,
+		YtdlPath:    ytdlPath,
+		Rm:          *rm,
+		Debug:       *debug,
+	}
+
 	queue := make(chan YTRequest)
-	go ytLoop(nncpPath, nncpCfgPath, ytdlPath, queue, *maxDls, *rm, *debug)
+	go ytLoop(&runCfg, queue, *maxDls)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -169,41 +185,41 @@ func parseLine(line string) (YTRequest, error) {
 	return req, nil
 }
 
-func ytLoop(nncpPath, nncpCfgPath, ytdlPath string, queue <-chan YTRequest, maxDls int, rm, debug bool) {
+func ytLoop(runCfg *RunConfig, queue <-chan YTRequest, maxDls int) {
 	var sem = make(chan bool, maxDls)
 
 	for req := range queue {
-		go ytHandler(nncpPath, nncpCfgPath, ytdlPath, req, rm, debug, sem)
+		go ytHandler(runCfg, req, sem)
 	}
 }
 
-func ytHandler(nncpPath, nncpCfgPath, ytdlPath string, req YTRequest, rm, debug bool, sem chan bool) {
+func ytHandler(runCfg *RunConfig, req YTRequest, sem chan bool) {
 	sem <- true
 	log.Println("Fetching video:", req.URL)
 
-	fname, err := ytdlFilename(ytdlPath, req.URL, req.Quality, debug)
+	fname, err := ytdlFilename(runCfg.YtdlPath, req.URL, req.Quality, runCfg.Debug)
 	if err != nil {
 		log.Printf("Error fetching filename of video %s: %v\n", req.URL, err)
 		return
 	}
 
-	if debug {
+	if runCfg.Debug {
 		log.Println("video filename:", fname)
 	}
 
-	err = ytdlVideo(ytdlPath, req.URL, req.Quality, debug)
+	err = ytdlVideo(runCfg.YtdlPath, req.URL, req.Quality, runCfg.Debug)
 	if err != nil {
 		log.Printf("Error fetching video %s with youtube-dl: %v\n", req.URL, err)
 		return
 	}
 
-	err = sendFileNNCP(nncpPath, nncpCfgPath, fname, req.Dest, debug)
+	err = sendFileNNCP(runCfg.NncpPath, runCfg.NncpCfgPath, fname, req.Dest, runCfg.Debug)
 	if err != nil {
 		log.Printf("Error sending file %s over NNCP: %v\n", fname, err)
 		return
 	}
 
-	if rm {
+	if runCfg.Rm {
 		err := os.Remove(fname)
 		if err != nil {
 			log.Println("Could not remove file", fname)
