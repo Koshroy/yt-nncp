@@ -57,17 +57,20 @@ type YTRequest struct {
 }
 
 type RunConfig struct {
-	NncpPath    string
-	NncpCfgPath string
-	YtdlPath    string
-	Rm          bool
-	Debug       bool
+	NncpPath     string
+	NncpCfgPath  string
+	NncpExecPath string
+	YtdlPath     string
+	Rm           bool
+	Debug        bool
+	Notify       bool
 }
 
 func main() {
 	pipe := flag.String("pipe", "", "path to pipe holding youtube requests")
 	debug := flag.Bool("debug", false, "debug mode")
 	rm := flag.Bool("rm", true, "remove files after download")
+	notify := flag.Bool("notify", true, "send notification after finishing download")
 	maxDls := flag.Int("max", 3, "maximum concurrent downloads")
 	flag.Parse()
 
@@ -100,6 +103,24 @@ func main() {
 			}
 		}
 	}
+	nncpExecPath := os.Getenv("NNCP_EXEC_PATH")
+	if nncpExecPath == "" {
+		nncpPath = "nncp-exec"
+	} else {
+		absPath, err := filepath.Abs(nncpExecPath)
+		if err == nil {
+			nncpExecPath = absPath
+		} else {
+			if *debug {
+				log.Printf("error canonicalizing nncp-exec path: %v\n", err)
+			}
+		}
+
+	}
+	// If we aren't running a notify, we don't need the exec path
+	if !*notify {
+		nncpExecPath = ""
+	}
 	ytdlPath := os.Getenv("YTDL_PATH")
 	if ytdlPath == "" {
 		ytdlPath = "youtube-dl"
@@ -120,11 +141,13 @@ func main() {
 	defer file.Close()
 
 	runCfg := RunConfig{
-		NncpPath:    nncpPath,
-		NncpCfgPath: nncpCfgPath,
-		YtdlPath:    ytdlPath,
-		Rm:          *rm,
-		Debug:       *debug,
+		NncpPath:     nncpPath,
+		NncpCfgPath:  nncpCfgPath,
+		NncpExecPath: nncpExecPath,
+		YtdlPath:     ytdlPath,
+		Rm:           *rm,
+		Debug:        *debug,
+		Notify:       *notify,
 	}
 
 	queue := make(chan YTRequest)
@@ -200,6 +223,7 @@ func ytHandler(runCfg *RunConfig, req YTRequest, sem chan bool) {
 	fname, err := ytdlFilename(runCfg.YtdlPath, req.URL, req.Quality, runCfg.Debug)
 	if err != nil {
 		log.Printf("Error fetching filename of video %s: %v\n", req.URL, err)
+		errorNotif(err, runCfg, req.Dest)
 		return
 	}
 
@@ -210,24 +234,45 @@ func ytHandler(runCfg *RunConfig, req YTRequest, sem chan bool) {
 	err = ytdlVideo(runCfg.YtdlPath, req.URL, req.Quality, runCfg.Debug)
 	if err != nil {
 		log.Printf("Error fetching video %s with youtube-dl: %v\n", req.URL, err)
+		errorNotif(err, runCfg, req.Dest)
 		return
 	}
 
 	err = sendFileNNCP(runCfg.NncpPath, runCfg.NncpCfgPath, fname, req.Dest, runCfg.Debug)
 	if err != nil {
 		log.Printf("Error sending file %s over NNCP: %v\n", fname, err)
+		errorNotif(err, runCfg, req.Dest)
 		return
 	}
 
 	if runCfg.Rm {
 		err := os.Remove(fname)
+		errorNotif(err, runCfg, req.Dest)
 		if err != nil {
-			log.Println("Could not remove file", fname)
+			log.Println("Could not remove file", fname, "because:", err)
+		}
+	}
+
+	if runCfg.Notify {
+		notifMsg := "Downloaded " + req.URL + " to " + fname
+		err = sendNotif(runCfg.NncpExecPath, runCfg.NncpCfgPath, notifMsg, req.Dest, runCfg.Debug)
+		if err != nil {
+			log.Println("Could not send notification:", err)
 		}
 	}
 
 	log.Println("Processed video request:", req.URL)
 	<-sem
+}
+
+func errorNotif(err error, runCfg *RunConfig, dest string) {
+	msg := fmt.Sprintf("Error sending file: %s", err)
+	if runCfg.Notify {
+		err := sendNotif(runCfg.NncpExecPath, runCfg.NncpCfgPath, msg, dest, runCfg.Debug)
+		if err != nil {
+			log.Printf("Error sending notification: %v\n", err)
+		}
+	}
 }
 
 func ytdlFilename(ytdlPath, URL string, qual YTQuality, debug bool) (string, error) {
@@ -413,6 +458,58 @@ func sendFileNNCP(nncpPath, nncpCfgPath, filename, destNode string, debug bool) 
 	}
 
 	err := cmd.Run()
+	if debug {
+		log.Println("nncp stderr:", strings.TrimSpace(out.String()))
+	}
+	return err
+}
+
+func sendNotif(nncpExecPath, nncpCfgPath, msg, destNode string, debug bool) error {
+	var cmd *exec.Cmd
+	var out *bytes.Buffer
+
+	if debug {
+		path := nncpCfgPath
+		if path == "" {
+			path = "<empty>"
+		}
+		log.Printf(
+			"Sending notification with message: %s to node: %s\n",
+			msg,
+			destNode,
+		)
+	}
+
+	if debug {
+		out = new(bytes.Buffer)
+	}
+
+	if nncpExecPath == "" {
+		return errors.New("nncp exec path not set")
+	}
+
+	var msgBuf bytes.Buffer
+	_, err := msgBuf.WriteString("Subject: ")
+	if err != nil {
+		return fmt.Errorf("could not write subject to message buffer: %w", err)
+	}
+	_, err = msgBuf.WriteString(msg)
+	if err != nil {
+		return fmt.Errorf("could not write to message buffer: %w", err)
+	}
+
+	if nncpCfgPath == "" {
+		cmd = exec.Command(nncpExecPath, "-quiet", destNode, "notify")
+	} else {
+		cmd = exec.Command(nncpExecPath, "-cfg", nncpCfgPath, "-quiet", destNode, "notify")
+	}
+
+	if debug {
+		cmd.Stderr = out
+	}
+	cmd.Stdin = &msgBuf
+
+	err = cmd.Run()
 	if debug {
 		log.Println("nncp stderr:", strings.TrimSpace(out.String()))
 	}
