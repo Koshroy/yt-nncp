@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -223,6 +224,16 @@ func ytLoop(runCfg *RunConfig, queue <-chan YTRequest, maxDls int) {
 
 func ytHandler(runCfg *RunConfig, req YTRequest, sem chan bool) {
 	sem <- true
+	defer func() {
+		<-sem
+	}()
+
+	ok := verifyUrl(req.URL)
+	if !ok {
+		err := fmt.Errorf("Invalid URL %s provided. Perhaps playlist?", req.URL)
+		errorNotif(err, runCfg, req.Dest)
+		return
+	}
 	log.Println("Fetching video:", req.URL)
 
 	fname, err := ytdlFilename(runCfg.YtdlPath, req.URL, req.Quality, runCfg.Debug)
@@ -267,7 +278,21 @@ func ytHandler(runCfg *RunConfig, req YTRequest, sem chan bool) {
 	}
 
 	log.Println("Processed video request:", req.URL)
-	<-sem
+}
+
+func verifyUrl(rawURL string) bool {
+	url, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+
+	// Playlist URLs are invalid
+	q := url.Query()
+	if q.Has("list") || q.Has("playlist") {
+		return false
+	}
+
+	return true
 }
 
 func errorNotif(err error, runCfg *RunConfig, dest string) {
