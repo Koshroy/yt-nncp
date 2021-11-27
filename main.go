@@ -24,6 +24,7 @@ const (
 	Best = iota
 	Worst
 	Medium
+	BestAudio
 )
 
 func AsYTQuality(s string) (YTQuality, error) {
@@ -31,6 +32,8 @@ func AsYTQuality(s string) (YTQuality, error) {
 		return YTQuality(Best), nil
 	} else if s == "worst" {
 		return YTQuality(Worst), nil
+	} else if s == "bestaudio" {
+		return YTQuality(BestAudio), nil
 	} else if s == "" {
 		return YTQuality(Medium), nil
 	} else {
@@ -45,6 +48,8 @@ func (qual YTQuality) String() string {
 		return "worstvideo+worstaudio"
 	} else if qual == Medium {
 		return ""
+	} else if qual == BestAudio {
+		return "bestaudio"
 	} else {
 		return ""
 	}
