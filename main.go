@@ -296,7 +296,7 @@ func verifyUrl(rawURL string) bool {
 }
 
 func errorNotif(err error, runCfg *RunConfig, dest string) {
-	msg := fmt.Sprintf("Error sending file: %s", err)
+	msg := fmt.Sprintf("Error sending file: %v", err)
 	if runCfg.Notify {
 		err := sendNotif(runCfg.NncpExecPath, runCfg.NncpCfgPath, msg, dest, runCfg.Debug)
 		if err != nil {
