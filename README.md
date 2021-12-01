@@ -3,6 +3,18 @@ yt-nncp
 
 Queue up Youtube downloads through youtube-dl over NNCP.
 
+## Building
+Go 1.13 or higher is necessary to build `yt-nncp`. In order to build
+`yt-nncp` simple run:
+
+```
+make
+```
+
+This invokes the Go compiler to generate a binary, then strips debug
+information from the binary.
+
+
 ## Usage
 ```
 yt-nncp -pipe <fifo>
@@ -15,10 +27,10 @@ line that is read from the named pipe is parsed as the following:
 <dest node> <media url> <<quality>>
 ```
 
-where `<quality>` is optional and can be either `best`, `worst`, or
-`medium`. An optional parameter `-max` can be passed which controls
-the maximum number of simultaneous downloads ongoing. By default this
-is set to `3` but can be changed.
+where `<quality>` is optional and can be either `best`, `worst`,
+`medium`, or `bestaudio`. An optional parameter `-max` can be passed
+which controls the maximum number of simultaneous downloads
+ongoing. By default this is set to `3` but can be changed.
 
 Make sure to set the environment varables if needed:
 
